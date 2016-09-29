@@ -10,7 +10,12 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+	_ "github.com/mattn/go-sqlite3"
+	"database/sql"
+	"errors"
 )
+
+var db, _ = sql.Open("sqlite3", "/root/sqlite3.db")
 
 const (
 	pingTimeoutInterval = 30 * time.Second
@@ -58,6 +63,8 @@ type Control struct {
 
 	// synchronizer for controller shutdown of entire Control
 	shutdown *util.Shutdown
+
+	username string
 }
 
 func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
@@ -81,6 +88,17 @@ func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
 		_ = msg.WriteMsg(ctlConn, &msg.AuthResp{Error: e.Error()})
 		ctlConn.Close()
 	}
+
+	if authMsg.User == "" {
+		failAuth(errors.New("Need auth_token"))
+		return
+	}
+	var name string
+	if db.QueryRow("select name from user_info where token=?", authMsg.User).Scan(&name) != nil {
+		failAuth(errors.New("User Auth Failed:" + authMsg.User))
+		return
+	}
+	c.username = name
 
 	// register the clientid
 	c.id = authMsg.ClientId
