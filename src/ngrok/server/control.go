@@ -13,58 +13,109 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"database/sql"
 	"errors"
+	"os/user"
+	"runtime"
+	"os"
+	"bytes"
+	"os/exec"
 )
 
-var db, _ = sql.Open("sqlite3", "/root/sqlite3.db")
+var db, _ = sql.Open("sqlite3", Home() + "/sqlite3.db")
+
+func Home() (string, error) {
+	user, err := user.Current()
+	if nil == err {
+		return user.HomeDir, nil
+	}
+	if "windows" == runtime.GOOS {
+		return homeWindows()
+	}
+	return homeUnix()
+}
+
+func homeUnix() (string, error) {
+	// First prefer the HOME environmental variable
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	var stdout bytes.Buffer
+	cmd := exec.Command("sh", "-c", "eval echo ~$USER")
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	result := strings.TrimSpace(stdout.String())
+	if result == "" {
+		return "", errors.New("blank output when reading home directory")
+	}
+
+	return result, nil
+}
+
+func homeWindows() (string, error) {
+
+	drive := os.Getenv("HOMEDRIVE")
+	path := os.Getenv("HOMEPATH")
+	home := drive + path
+	if drive == "" || path == "" {
+		home = os.Getenv("USERPROFILE")
+	}
+	if home == "" {
+		return "", errors.New("HOMEDRIVE, HOMEPATH, and USERPROFILE are blank")
+	}
+
+	return home, nil
+}
 
 const (
 	pingTimeoutInterval = 30 * time.Second
-	connReapInterval    = 10 * time.Second
+	connReapInterval = 10 * time.Second
 	controlWriteTimeout = 10 * time.Second
-	proxyStaleDuration  = 60 * time.Second
-	proxyMaxPoolSize    = 10
+	proxyStaleDuration = 60 * time.Second
+	proxyMaxPoolSize = 10
 )
 
 type Control struct {
 	// auth message
-	auth *msg.Auth
+	auth            *msg.Auth
 
 	// actual connection
-	conn conn.Conn
+	conn            conn.Conn
 
 	// put a message in this channel to send it over
 	// conn to the client
-	out chan (msg.Message)
+	out             chan (msg.Message)
 
 	// read from this channel to get the next message sent
 	// to us over conn by the client
-	in chan (msg.Message)
+	in              chan (msg.Message)
 
 	// the last time we received a ping from the client - for heartbeats
-	lastPing time.Time
+	lastPing        time.Time
 
 	// all of the tunnels this control connection handles
-	tunnels []*Tunnel
+	tunnels         []*Tunnel
 
 	// proxy connections
-	proxies chan conn.Conn
+	proxies         chan conn.Conn
 
 	// identifier
-	id string
+	id              string
 
 	// synchronizer for controlled shutdown of writer()
-	writerShutdown *util.Shutdown
+	writerShutdown  *util.Shutdown
 
 	// synchronizer for controlled shutdown of reader()
-	readerShutdown *util.Shutdown
+	readerShutdown  *util.Shutdown
 
 	// synchronizer for controlled shutdown of manager()
 	managerShutdown *util.Shutdown
 
 	// synchronizer for controller shutdown of entire Control
-	shutdown *util.Shutdown
+	shutdown        *util.Shutdown
 
-	username string
+	username        string
 }
 
 func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
@@ -171,7 +222,7 @@ func (c *Control) registerTunnel(rawTunnelReq *msg.ReqTunnel) {
 			ReqId:    rawTunnelReq.ReqId,
 		}
 
-		rawTunnelReq.Hostname = strings.Replace(t.url, proto+"://", "", 1)
+		rawTunnelReq.Hostname = strings.Replace(t.url, proto + "://", "", 1)
 	}
 }
 
@@ -202,7 +253,7 @@ func (c *Control) manager() {
 			}
 
 		case mRaw, ok := <-c.in:
-			// c.in closes to indicate shutdown
+		// c.in closes to indicate shutdown
 			if !ok {
 				return
 			}
@@ -338,23 +389,25 @@ func (c *Control) GetProxy() (proxyConn conn.Conn, err error) {
 			return
 		}
 	default:
-		// no proxy available in the pool, ask for one over the control channel
+	// no proxy available in the pool, ask for one over the control channel
 		c.conn.Debug("No proxy in pool, requesting proxy from control . . .")
-		if err = util.PanicToError(func() { c.out <- &msg.ReqProxy{} }); err != nil {
+		if err = util.PanicToError(func() {
+			c.out <- &msg.ReqProxy{}
+		}); err != nil {
 			return
 		}
 
-		select {
-		case proxyConn, ok = <-c.proxies:
-			if !ok {
-				err = fmt.Errorf("No proxy connections available, control is closing")
+			select {
+			case proxyConn, ok = <-c.proxies:
+				if !ok {
+					err = fmt.Errorf("No proxy connections available, control is closing")
+					return
+				}
+
+			case <-time.After(pingTimeoutInterval):
+				err = fmt.Errorf("Timeout trying to get proxy connection")
 				return
 			}
-
-		case <-time.After(pingTimeoutInterval):
-			err = fmt.Errorf("Timeout trying to get proxy connection")
-			return
-		}
 	}
 	return
 }
