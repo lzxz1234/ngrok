@@ -20,7 +20,8 @@ import (
 	"os/exec"
 )
 
-var db, _ = sql.Open("sqlite3", Home() + "/sqlite3.db")
+var home, _ = Home()
+var db, _ = sql.Open("sqlite3", home + "/sqlite3.db")
 
 func Home() (string, error) {
 	user, err := user.Current()
