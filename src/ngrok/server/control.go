@@ -252,7 +252,10 @@ func (c *Control) manager() {
 				c.conn.Info("Lost heartbeat")
 				c.shutdown.Begin()
 			}
-
+		default:
+			// pass
+		}
+		select {
 		case mRaw, ok := <-c.in:
 		// c.in closes to indicate shutdown
 			if !ok {
