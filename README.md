@@ -48,3 +48,7 @@ ngrok.com ran a pay-what-you-want hosted service of 1.x from early 2013 until Ap
 
 ## Developing on ngrok
 [ngrok developer's guide](docs/DEVELOPMENT.md)
+
+### 编译
+
+GOOS=windows GOARCH=amd64 make release-client

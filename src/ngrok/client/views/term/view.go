@@ -28,7 +28,7 @@ func NewTermView(ctl mvc.Controller) *TermView {
 	w, _ := termbox.Size()
 
 	v := &TermView{
-		ctl:      ctl,		updates:  ctl.Updates().Reg(),
+		ctl: ctl, updates: ctl.Updates().Reg(),
 		redraw:   util.NewBroadcast(),
 		flush:    make(chan int),
 		shutdown: make(chan int),
